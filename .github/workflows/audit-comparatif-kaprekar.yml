@@ -1,6 +1,11 @@
 name: Audit comparatif Kaprekar 005 vs galyavin
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'exploration005/**'
+      - '.github/workflows/audit-comparatif-kaprekar.yml'
 permissions:
   contents: read
 jobs:
