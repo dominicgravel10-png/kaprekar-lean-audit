@@ -1,0 +1,64 @@
+name: Audit comparatif Kaprekar 005 vs galyavin
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exploration005:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+          toolchain: leanprover/lean4:v4.19.0
+      - name: Recompile and replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit_logs
+          lean --version | tee audit_logs/version.log
+          test -f exploration005/K.lean
+          test -f exploration005/Replay.lean
+          cd exploration005
+          lean -DwarningAsError=true -o K.olean K.lean 2>&1 | tee ../audit_logs/compile.log
+          lean --run Replay.lean 2>&1 | tee ../audit_logs/replay.log
+          printf 'import K\n#print axioms Kaprekar.certified\n' > AuditAxioms.lean
+          LEAN_PATH=. lean AuditAxioms.lean 2>&1 | tee ../audit_logs/axioms.log
+          sha256sum K.lean Replay.lean K.olean > ../audit_logs/sha256.log
+          grep -nE 'sorry|admit|native_decide|axiom|decide' K.lean Replay.lean > ../audit_logs/token_scan.log || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: exploration005-audit
+          path: audit_logs/
+  galyavin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Freeze source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit_logs
+          git clone https://github.com/galyavin/kaprekar-dynamics.git upstream
+          git -C upstream rev-parse HEAD | tee audit_logs/commit.log
+          find upstream -type f \( -name '*.lean' -o -name 'lean-toolchain' -o -name 'lakefile.*' \) | sort > audit_logs/files.log
+          grep -RInE 'native_decide|sorry|admit|axiom|decide' --include='*.lean' upstream > audit_logs/token_scan.log || true
+      - uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+          toolchain: leanprover/lean4:v4.28.0
+      - name: Build and print axioms
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream/cycles-even-bases/ancillary/lean
+          lake --version | tee "$GITHUB_WORKSPACE/audit_logs/lake-version.log"
+          lake build 2>&1 | tee "$GITHUB_WORKSPACE/audit_logs/build.log"
+          lake env lean TheoremC.lean 2>&1 | tee "$GITHUB_WORKSPACE/audit_logs/theoremC.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: galyavin-audit
+          path: audit_logs/
